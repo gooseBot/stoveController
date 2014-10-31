@@ -1,11 +1,8 @@
-
-
 #include <SPI.h>
 #include <Ethernet.h>
 #include <Servo.h> 
 #define maxLength 30
 #include <EEPROM.h>
-
 
 // Enter a MAC address and IP address for your controller below.
 // The IP address will be dependent on your local network:
@@ -16,7 +13,7 @@ String responseString = String(maxLength);
 // Initialize the Ethernet server library
 // with the IP address and port you want to use 
 // (port 80 is default for HTTP):
-Server server(80);
+EthernetServer  server(80);
 
 // Setup Servo and pot
 Servo myServo;  // create servo object to control a servo 
@@ -43,9 +40,6 @@ void setup()
   //   and gives consistent values
   potVal = analogRead(potPin);
   delay(30);
-  
-  // set servo to current pot val on startup
-  //setServo(mapPotVal(analogRead(potPin)));   
 }
 
 void loop()
@@ -54,7 +48,7 @@ void loop()
   potVal = analogRead(potPin);
   
   // listen for incoming clients
-  Client client = server.available();
+  EthernetClient client = server.available();
   if (client) {
     // an http request ends with a blank line
     boolean currentLineIsBlank = true;

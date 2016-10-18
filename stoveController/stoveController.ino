@@ -1,54 +1,55 @@
-#include <SPI.h>
-#include <Ethernet.h>
+// Include the ESP8266 WiFi library. (Works a lot like the Arduino WiFi library.)
+#include <ESP8266WiFi.h>
 #include <Servo.h> 
 #define maxLength 30
 #include <EEPROM.h>
 
+//////////////////////
+// WiFi Definitions //
+//////////////////////
+const char WiFiSSID[] = "34er54";
+const char WiFiPSK[] = "jeep~fish*63";
+
+/////////////////////
+// Pin Definitions //
+/////////////////////
+const int LED_PIN = 5; // Thing's onboard, green LED
+const int buttonPin = 15; // Digital pin to be read
+const int servoPin = 2;  //digital pin used to control the servo
+
 // Enter a MAC address and IP address for your controller below.
 // The IP address will be dependent on your local network:
-byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
-byte ip[] = { 192,168,1, 177 };
+//byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
+//byte ip[] = { 192,168,1, 177 };
 String responseString = String(maxLength);
 
-// Initialize the Ethernet server library
-// with the IP address and port you want to use 
-// (port 80 is default for HTTP):
-EthernetServer  server(80);
+// Initialize the WiFiServer server library
+WiFiServer server(80);
 
 // Setup Servo and pot
 Servo myServo;  // create servo object to control a servo 
-int potPin = 3;  // analog pin used to connect the potentiometer
-int servoPin = 3;  //digital pin used to control the servo
-int potVal;    // variable to read the value from the analog pin 
+
 int webServoVal;
-boolean potMode=false;  //on startup we don't want the pot to set the stove
 String pword;
 
 void setup()
 {
   // start the Ethernet connection and the server:
-  Ethernet.begin(mac, ip);
+  connectWiFi();
+  //Ethernet.begin(mac, ip);
   server.begin();
   
   myServo.attach(servoPin);   // start servo
   
   // read and set last servo val from eeprom
-  setServo(EEPROM.read(1));
-  
-  // read the pot now and delay, seems like it takes a bit
-  //   of time before the pot settles down on a restart
-  //   and gives consistent values
-  potVal = analogRead(potPin);
-  delay(30);
+  setServo(EEPROM.read(1));  
 }
 
 void loop()
 {
-  //read the pot and remember the setting
-  potVal = analogRead(potPin);
   
   // listen for incoming clients
-  EthernetClient client = server.available();
+  WiFiClient  client = server.available();
   if (client) {
     // an http request ends with a blank line
     boolean currentLineIsBlank = true;
@@ -71,11 +72,9 @@ void loop()
             pword = responseString.substring((ampersand+7), (End-1));
             if (pword=="jebg" && stove=="on"){
               setServo(15);
-              potMode=false;
             }              
             if (pword=="jebg" && stove=="off"){
               setServo(155);
-              potMode=false;
             }          
           }  
                     
@@ -90,12 +89,7 @@ void loop()
           } else {
             client.println("<state>on</state>");
           }
-          
-          potVal = analogRead(potPin);
-          client.print("<pot>");
-          client.print(potVal);    
-          client.println("</pot>");
-          
+                    
           client.print("<servo>");
           client.print(myServo.read());
           client.println("</servo>");
@@ -126,14 +120,6 @@ void loop()
     client.stop();
   }
   
-  //if pot has changed by more than x since last loop then assume
-  //   manual overwride and set at new pot value
-  delay(5);
-  int curPotVal=analogRead(potPin);
-  if (abs(curPotVal - potVal) > 5 || potMode) { 
-    potMode=true;
-    setServo(mapPotVal(curPotVal));
-  }
 }
 
 void setServo(int value)
@@ -147,9 +133,36 @@ void setServo(int value)
   delay(15);
 }
 
-int mapPotVal(int potReading)
+void connectWiFi()
 {
-  return map(potReading, 0, 1023, 1, 179);
+  byte ledStatus = LOW;
+  Serial.println();
+  Serial.println("Connecting to: " + String(WiFiSSID));
+  // Set WiFi mode to station (as opposed to AP or AP_STA)
+  WiFi.mode(WIFI_STA);
+
+  // WiFI.begin([ssid], [passkey]) initiates a WiFI connection
+  // to the stated [ssid], using the [passkey] as a WPA, WPA2,
+  // or WEP passphrase.
+  WiFi.begin(WiFiSSID, WiFiPSK);
+
+  // Use the WiFi.status() function to check if the ESP8266
+  // is connected to a WiFi network.
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    // Blink the LED
+    digitalWrite(LED_PIN, ledStatus); // Write LED high/low
+    ledStatus = (ledStatus == HIGH) ? LOW : HIGH;
+
+    // Delays allow the ESP8266 to perform critical tasks
+    // defined outside of the sketch. These tasks include
+    // setting up, and maintaining, a WiFi connection.
+    delay(100);
+    // Potentially infinite loops are generally dangerous.
+    // Add delays -- allowing the processor to perform other
+    // tasks -- wherever possible.
+  }
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
 }
-
-

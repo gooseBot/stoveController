@@ -17,26 +17,20 @@ const int LED_PIN = 5; // Thing's onboard, green LED
 const int buttonPin = 15; // Digital pin to be read
 const int servoPin = 2;  //digital pin used to control the servo
 
-// Enter a MAC address and IP address for your controller below.
-// The IP address will be dependent on your local network:
-//byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
-//byte ip[] = { 192,168,1, 177 };
+byte ip[] = { 192,168,1, 177 };
 String responseString = String(maxLength);
 
-// Initialize the WiFiServer server library
-WiFiServer server(80);
-
-// Setup Servo and pot
-Servo myServo;  // create servo object to control a servo 
-
+Servo myServo;  
 int webServoVal;
 String pword;
+// Initialize the WiFiServer server library
+WiFiServer server(80);
 
 void setup()
 {
   // start the Ethernet connection and the server:
   connectWiFi();
-  //Ethernet.begin(mac, ip);
+ 
   server.begin();
   
   myServo.attach(servoPin);   // start servo
@@ -162,6 +156,9 @@ void connectWiFi()
     // Add delays -- allowing the processor to perform other
     // tasks -- wherever possible.
   }
+  // try to use a static address that I'm using with the router with ddns
+  WiFi.config(ip,WiFi.gatewayIP(), WiFi.subnetMask());
+
   Serial.println("WiFi connected");
   Serial.println("IP address: ");
   Serial.println(WiFi.localIP());

@@ -4,18 +4,15 @@
 #define maxLength 30
 #include <EEPROM.h>
 
-//////////////////////
-// WiFi Definitions //
-//////////////////////
 const char WiFiSSID[] = "34er54";
 const char WiFiPSK[] = "jeep~fish*63";
 
-/////////////////////
-// Pin Definitions //
-/////////////////////
-const int LED_PIN = 5; // Thing's onboard, green LED
-const int buttonPin = 15; // Digital pin to be read
+const int LED_PIN = 5; // Thing's, green LED
+const int buttonPin = 12; // Digital pin to be read
 const int servoPin = 2;  //digital pin used to control the servo
+
+int stoveOn = 15;
+int stoveOff = 155;
 
 byte ip[] = { 192,168,1, 177 };
 String responseString = String(maxLength);
@@ -28,103 +25,106 @@ WiFiServer server(80);
 
 void setup()
 {
+  Serial.begin(115200);
+
+  pinMode(buttonPin, INPUT_PULLUP); // Set pin 12 as an input w/ pull-up
+
   // start the Ethernet connection and the server:
   connectWiFi();
  
   server.begin();
   
-  myServo.attach(servoPin);   // start servo
-  
   // read and set last servo val from eeprom
-  setServo(EEPROM.read(1));  
+  myServo.attach(servoPin);
+  delay(50);
+  myServo.write(stoveOff);                  // tell servo to go to position in variable 'pos'
+  delay(500);
+  myServo.detach();
+
 }
 
 void loop()
 {
-  
-  // listen for incoming clients
-  WiFiClient  client = server.available();
-  if (client) {
-    // an http request ends with a blank line
-    boolean currentLineIsBlank = true;
-    while (client.connected()) {
-      if (client.available()) {
-        char c = client.read();
-        // if you've gotten to the end of the line (received a newline
-        // character) and the line is blank, the http request has ended,
-        // so you can send a reply
-        if (responseString.length() < maxLength) {
-          responseString += c;
-        }
-        if (c == '\n' && currentLineIsBlank) {
-          if (responseString.indexOf("?")>-1) {  
-            int stovePos = responseString.indexOf("?");
-            int ampersand = responseString.indexOf("&");            
-            String stove = responseString.substring((stovePos+7), (ampersand));
-            
-            int End = responseString.indexOf("H");
-            pword = responseString.substring((ampersand+7), (End-1));
-            if (pword=="jebg" && stove=="on"){
-              setServo(15);
-            }              
-            if (pword=="jebg" && stove=="off"){
-              setServo(155);
-            }          
-          }  
-                    
-          // send a standard http response header
-          client.println("HTTP/1.1 200 OK");
-          client.println("Content-Type: text/html");
-          client.println();
-          
-          client.println("<status>");
-          if (myServo.read() > 100) {
-            client.println("<state>off</state>");
-          } else {
-            client.println("<state>on</state>");
-          }
-                    
-          client.print("<servo>");
-          client.print(myServo.read());
-          client.println("</servo>");
-
-          client.print("<response>");
-          client.print(responseString);
-          client.println("</response>");
-          
-          client.println("</status>");
-           
-          responseString="";  
-          
-          break;
-        }
-        if (c == '\n') {
-          // you're starting a new line
-          currentLineIsBlank = true;
-        } 
-        else if (c != '\r') {
-          // you've gotten a character on the current line
-          currentLineIsBlank = false;
-        }
-      }
+  //look for button push and toggle state of stove
+  if (digitalRead(buttonPin) == LOW){
+    if (myServo.read() > 100) {
+      myServo.attach(servoPin);
+      delay(50);
+      myServo.write(stoveOn);                  // tell servo to go to position in variable 'pos'
+      delay(500);
+      myServo.detach();
     }
-    // give the web browser time to receive the data
-    delay(1);
-    // close the connection:
-    client.stop();
+    else {
+      myServo.attach(servoPin);
+      delay(50);
+      myServo.write(stoveOff);                  // tell servo to go to position in variable 'pos'
+      delay(500);
+      myServo.detach();
+    }
+    delay(400);
   }
-  
-}
 
-void setServo(int value)
-{
-  if (value > 170)
-    value = 170;
-  if (value < 10)
-    value = 10;
-  myServo.write(value); 
-  EEPROM.write(1,value);  //save servo value for use if a reset occurs
-  delay(15);
+  // Check if a client has connected
+  WiFiClient client = server.available();
+  if (!client) {
+    return;
+  }
+
+  // Read the first line of the request
+  String req = client.readStringUntil('\r');
+  Serial.println(req);
+  client.flush();
+
+  // Match the request
+  int val = -1; // We'll use 'val' to keep track of both the
+                // request type (read/set) and value if set.
+  if (req.indexOf("/stove/0") != -1) {
+    val = 0; // Will write stove low
+    myServo.attach(servoPin);
+    delay(50);
+    myServo.write(stoveOff);                  // tell servo to go to position in variable 'pos'
+    delay(500);
+    myServo.detach();
+  }
+  else if (req.indexOf("/stove/1") != -1) {
+    val = 1; // Will write stove high
+    myServo.attach(servoPin);
+    delay(50);
+    myServo.write(stoveOn);                  // tell servo to go to position in variable 'pos'
+    delay(500);
+    myServo.detach();
+  }                  
+  else if (req.indexOf("/stove/status") != -1) {
+    //val = -1; 
+    myServo.attach(servoPin);
+    delay(50);
+    val = myServo.read();                
+    myServo.detach();
+    if (val <= (stoveOn + 5))
+      val = 1;
+    if (val >= (stoveOff - 5))
+      val = 0;
+  } 
+  client.flush();
+
+  // Prepare the response. Start with the common header:
+  String s = "HTTP/1.1 200 OK\r\n";
+  s += "Content-Type: text/html\r\n\r\n";
+  s += "<!DOCTYPE HTML>\r\n<html>\r\n";
+  // If we're setting the stove, print out a message saying we did
+  if (val >= 0)
+  {
+    s += (val) ? "on" : "off";
+  }
+  else
+  {
+    s += "Invalid Request";
+  }
+  s += "</html>\n";
+
+  // Send the response to the client
+  client.print(s);
+  delay(1);
 }
 
 void connectWiFi()

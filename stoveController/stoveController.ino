@@ -2,7 +2,6 @@
 #include <ESP8266WiFi.h>
 #include <Servo.h> 
 #define maxLength 30
-#include <EEPROM.h>
 
 const char WiFiSSID[] = "34er54";
 const char WiFiPSK[] = "jeep~fish*63";
@@ -18,9 +17,7 @@ byte ip[] = { 192,168,1, 177 };
 String responseString = String(maxLength);
 
 Servo myServo;  
-int webServoVal;
-String pword;
-// Initialize the WiFiServer server library
+
 WiFiServer server(80);
 
 void setup()
@@ -29,18 +26,11 @@ void setup()
 
   pinMode(buttonPin, INPUT_PULLUP); // Set pin 12 as an input w/ pull-up
 
-  // start the Ethernet connection and the server:
   connectWiFi();
  
   server.begin();
   
-  // read and set last servo val from eeprom
-  myServo.attach(servoPin);
-  delay(50);
-  myServo.write(stoveOff);                  // tell servo to go to position in variable 'pos'
-  delay(500);
-  myServo.detach();
-
+  setStove(false);
 }
 
 void loop()
@@ -48,18 +38,10 @@ void loop()
   //look for button push and toggle state of stove
   if (digitalRead(buttonPin) == LOW){
     if (myServo.read() > 100) {
-      myServo.attach(servoPin);
-      delay(50);
-      myServo.write(stoveOn);                  // tell servo to go to position in variable 'pos'
-      delay(500);
-      myServo.detach();
+      setStove(true);
     }
     else {
-      myServo.attach(servoPin);
-      delay(50);
-      myServo.write(stoveOff);                  // tell servo to go to position in variable 'pos'
-      delay(500);
-      myServo.detach();
+      setStove(false);
     }
     delay(400);
   }
@@ -76,33 +58,23 @@ void loop()
   client.flush();
 
   // Match the request
-  int val = -1; // We'll use 'val' to keep track of both the
-                // request type (read/set) and value if set.
+  int val = -1; 
   if (req.indexOf("/stove/0") != -1) {
-    val = 0; // Will write stove low
-    myServo.attach(servoPin);
-    delay(50);
-    myServo.write(stoveOff);                  // tell servo to go to position in variable 'pos'
-    delay(500);
-    myServo.detach();
+    val = 0; // Will write stove off
+    setStove(false);
   }
   else if (req.indexOf("/stove/1") != -1) {
-    val = 1; // Will write stove high
-    myServo.attach(servoPin);
-    delay(50);
-    myServo.write(stoveOn);                  // tell servo to go to position in variable 'pos'
-    delay(500);
-    myServo.detach();
+    val = 1; // Will write stove on
+    setStove(true);
   }                  
   else if (req.indexOf("/stove/status") != -1) {
-    //val = -1; 
     myServo.attach(servoPin);
     delay(50);
-    val = myServo.read();                
+    int servoVal = myServo.read();                
     myServo.detach();
-    if (val <= (stoveOn + 5))
+    if (servoVal <= (stoveOn + 5))
       val = 1;
-    if (val >= (stoveOff - 5))
+    if (servoVal >= (stoveOff - 5))
       val = 0;
   } 
   client.flush();
@@ -126,6 +98,36 @@ void loop()
   client.print(s);
   delay(1);
 }
+
+void setStove(bool turnStoveOn)
+{
+  myServo.attach(servoPin);
+  delay(50);
+  if (turnStoveOn)
+    myServo.write(stoveOn);
+  else
+    myServo.write(stoveOff);
+  delay(500);
+  myServo.detach();
+}
+
+//void turnStoveOff()
+//{
+//  myServo.attach(servoPin);
+//  delay(50);
+//  myServo.write(stoveOff);                  
+//  delay(500);
+//  myServo.detach();
+//}
+//
+//void turnStoveOn() 
+//{
+//  myServo.attach(servoPin);
+//  delay(50);
+//  myServo.write(stoveOn);                  
+//  delay(500);
+//  myServo.detach();
+//}
 
 void connectWiFi()
 {

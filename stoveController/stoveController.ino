@@ -1,155 +1,167 @@
-#include <SPI.h>
-#include <Ethernet.h>
+// Include the ESP8266 WiFi library. (Works a lot like the Arduino WiFi library.)
+#include <ESP8266WiFi.h>
 #include <Servo.h> 
 #define maxLength 30
-#include <EEPROM.h>
 
-// Enter a MAC address and IP address for your controller below.
-// The IP address will be dependent on your local network:
-byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
+const char WiFiSSID[] = "34er54";
+const char WiFiPSK[] = "jeep~fish*63";
+
+const int LED_PIN = 5; // Thing's, green LED
+const int buttonPin = 12; // Digital pin to be read
+const int servoPin = 2;  //digital pin used to control the servo
+
+int stoveOn = 15;
+int stoveOff = 155;
+
 byte ip[] = { 192,168,1, 177 };
 String responseString = String(maxLength);
 
-// Initialize the Ethernet server library
-// with the IP address and port you want to use 
-// (port 80 is default for HTTP):
-EthernetServer  server(80);
+Servo myServo;  
 
-// Setup Servo and pot
-Servo myServo;  // create servo object to control a servo 
-int potPin = 3;  // analog pin used to connect the potentiometer
-int servoPin = 3;  //digital pin used to control the servo
-int potVal;    // variable to read the value from the analog pin 
-int webServoVal;
-boolean potMode=false;  //on startup we don't want the pot to set the stove
-String pword;
+WiFiServer server(80);
 
 void setup()
 {
-  // start the Ethernet connection and the server:
-  Ethernet.begin(mac, ip);
+  Serial.begin(115200);
+
+  pinMode(buttonPin, INPUT_PULLUP); // Set pin 12 as an input w/ pull-up
+
+  connectWiFi();
+ 
   server.begin();
   
-  myServo.attach(servoPin);   // start servo
-  
-  // read and set last servo val from eeprom
-  setServo(EEPROM.read(1));
-  
-  // read the pot now and delay, seems like it takes a bit
-  //   of time before the pot settles down on a restart
-  //   and gives consistent values
-  potVal = analogRead(potPin);
-  delay(30);
+  setStove(false);
 }
 
 void loop()
 {
-  //read the pot and remember the setting
-  potVal = analogRead(potPin);
-  
-  // listen for incoming clients
-  EthernetClient client = server.available();
-  if (client) {
-    // an http request ends with a blank line
-    boolean currentLineIsBlank = true;
-    while (client.connected()) {
-      if (client.available()) {
-        char c = client.read();
-        // if you've gotten to the end of the line (received a newline
-        // character) and the line is blank, the http request has ended,
-        // so you can send a reply
-        if (responseString.length() < maxLength) {
-          responseString += c;
-        }
-        if (c == '\n' && currentLineIsBlank) {
-          if (responseString.indexOf("?")>-1) {  
-            int stovePos = responseString.indexOf("?");
-            int ampersand = responseString.indexOf("&");            
-            String stove = responseString.substring((stovePos+7), (ampersand));
-            
-            int End = responseString.indexOf("H");
-            pword = responseString.substring((ampersand+7), (End-1));
-            if (pword=="jebg" && stove=="on"){
-              setServo(15);
-              potMode=false;
-            }              
-            if (pword=="jebg" && stove=="off"){
-              setServo(155);
-              potMode=false;
-            }          
-          }  
-                    
-          // send a standard http response header
-          client.println("HTTP/1.1 200 OK");
-          client.println("Content-Type: text/html");
-          client.println();
-          
-          client.println("<status>");
-          if (myServo.read() > 100) {
-            client.println("<state>off</state>");
-          } else {
-            client.println("<state>on</state>");
-          }
-          
-          potVal = analogRead(potPin);
-          client.print("<pot>");
-          client.print(potVal);    
-          client.println("</pot>");
-          
-          client.print("<servo>");
-          client.print(myServo.read());
-          client.println("</servo>");
-
-          client.print("<response>");
-          client.print(responseString);
-          client.println("</response>");
-          
-          client.println("</status>");
-           
-          responseString="";  
-          
-          break;
-        }
-        if (c == '\n') {
-          // you're starting a new line
-          currentLineIsBlank = true;
-        } 
-        else if (c != '\r') {
-          // you've gotten a character on the current line
-          currentLineIsBlank = false;
-        }
-      }
+  //look for button push and toggle state of stove
+  if (digitalRead(buttonPin) == LOW){
+    if (myServo.read() > 100) {
+      setStove(true);
     }
-    // give the web browser time to receive the data
-    delay(1);
-    // close the connection:
-    client.stop();
+    else {
+      setStove(false);
+    }
+    delay(400);
   }
-  
-  //if pot has changed by more than x since last loop then assume
-  //   manual overwride and set at new pot value
-  delay(5);
-  int curPotVal=analogRead(potPin);
-  if (abs(curPotVal - potVal) > 5 || potMode) { 
-    potMode=true;
-    setServo(mapPotVal(curPotVal));
+
+  // Check if a client has connected
+  WiFiClient client = server.available();
+  if (!client) {
+    return;
   }
+
+  // Read the first line of the request
+  String req = client.readStringUntil('\r');
+  Serial.println(req);
+  client.flush();
+
+  // Match the request
+  int val = -1; 
+  if (req.indexOf("/stove/0") != -1) {
+    val = 0; // Will write stove off
+    setStove(false);
+  }
+  else if (req.indexOf("/stove/1") != -1) {
+    val = 1; // Will write stove on
+    setStove(true);
+  }                  
+  else if (req.indexOf("/stove/status") != -1) {
+    myServo.attach(servoPin);
+    delay(50);
+    int servoVal = myServo.read();                
+    myServo.detach();
+    if (servoVal <= (stoveOn + 5))
+      val = 1;
+    if (servoVal >= (stoveOff - 5))
+      val = 0;
+  } 
+  client.flush();
+
+  // Prepare the response. Start with the common header:
+  String s = "HTTP/1.1 200 OK\r\n";
+  s += "Content-Type: text/html\r\n\r\n";
+  s += "<!DOCTYPE HTML>\r\n<html>\r\n";
+  // If we're setting the stove, print out a message saying we did
+  if (val >= 0)
+  {
+    s += (val) ? "on" : "off";
+  }
+  else
+  {
+    s += "Invalid Request";
+  }
+  s += "</html>\n";
+
+  // Send the response to the client
+  client.print(s);
+  delay(1);
 }
 
-void setServo(int value)
+void setStove(bool turnStoveOn)
 {
-  if (value > 170)
-    value = 170;
-  if (value < 10)
-    value = 10;
-  myServo.write(value); 
-  EEPROM.write(1,value);  //save servo value for use if a reset occurs
-  delay(15);
+  myServo.attach(servoPin);
+  delay(50);
+  if (turnStoveOn)
+    myServo.write(stoveOn);
+  else
+    myServo.write(stoveOff);
+  delay(500);
+  myServo.detach();
 }
 
-int mapPotVal(int potReading)
+//void turnStoveOff()
+//{
+//  myServo.attach(servoPin);
+//  delay(50);
+//  myServo.write(stoveOff);                  
+//  delay(500);
+//  myServo.detach();
+//}
+//
+//void turnStoveOn() 
+//{
+//  myServo.attach(servoPin);
+//  delay(50);
+//  myServo.write(stoveOn);                  
+//  delay(500);
+//  myServo.detach();
+//}
+
+void connectWiFi()
 {
-  return map(potReading, 0, 1023, 1, 179);
+  byte ledStatus = LOW;
+  Serial.println();
+  Serial.println("Connecting to: " + String(WiFiSSID));
+  // Set WiFi mode to station (as opposed to AP or AP_STA)
+  WiFi.mode(WIFI_STA);
+
+  // WiFI.begin([ssid], [passkey]) initiates a WiFI connection
+  // to the stated [ssid], using the [passkey] as a WPA, WPA2,
+  // or WEP passphrase.
+  WiFi.begin(WiFiSSID, WiFiPSK);
+
+  // Use the WiFi.status() function to check if the ESP8266
+  // is connected to a WiFi network.
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    // Blink the LED
+    digitalWrite(LED_PIN, ledStatus); // Write LED high/low
+    ledStatus = (ledStatus == HIGH) ? LOW : HIGH;
+
+    // Delays allow the ESP8266 to perform critical tasks
+    // defined outside of the sketch. These tasks include
+    // setting up, and maintaining, a WiFi connection.
+    delay(100);
+    // Potentially infinite loops are generally dangerous.
+    // Add delays -- allowing the processor to perform other
+    // tasks -- wherever possible.
+  }
+  // try to use a static address that I'm using with the router with ddns
+  WiFi.config(ip,WiFi.gatewayIP(), WiFi.subnetMask());
+
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
 }
-
-
